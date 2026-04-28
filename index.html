@@ -176,13 +176,9 @@ function unlockAudio() {
 }
 
 function speak(text) {
-  speechSynthesis.cancel();
-
   const msg = new SpeechSynthesisUtterance(String(text));
   msg.lang = "zh-TW";
   msg.rate = 1.05;
-  msg.pitch = 1;
-  msg.volume = 1;
 
   speechSynthesis.speak(msg);
 }
@@ -416,24 +412,24 @@ function testCountdown() {
 
   beep();
 
-  setTimeout(() => {
-    speak(`準備進行最後一次抽換，倒數${FINAL_COUNTDOWN_TIME}秒。`);
-  }, 500);
-
   let n = FINAL_COUNTDOWN_TIME;
 
-  const testId = setInterval(() => {
-    speak(n);
-    n--;
+  speak(`準備進行最後一次抽換，倒數${n}秒。`);
 
-    if (n < 1) {
-      clearInterval(testId);
-      setTimeout(() => {
-        beep();
-        if (!isRunning) updateDisplay();
-      }, 1000);
-    }
-  }, 1000);
+  setTimeout(() => {
+    const testId = setInterval(() => {
+      speak(n);
+      n--;
+
+      if (n < 1) {
+        clearInterval(testId);
+        setTimeout(() => {
+          beep();
+          if (!isRunning) updateDisplay();
+        }, 800);
+      }
+    }, 1200); // ← 留一點語音時間
+  }, 1200);
 }
 
 updateDisplay();
