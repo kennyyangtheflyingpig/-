@@ -11,6 +11,30 @@ body {
   background: #111827;
   color: #f9fafb;
   padding: 20px;
+  transition: background 0.4s ease;
+}
+
+body.mode-idle {
+  background: #111827;
+}
+
+body.mode-prep {
+  background: #166534;
+}
+
+body.mode-measure {
+  background: #ca8a04;
+  color: #111827;
+}
+
+body.mode-final {
+  background: #991b1b;
+  color: #f9fafb;
+}
+
+body.mode-test {
+  background: #92400e;
+  color: #f9fafb;
 }
 
 .container {
@@ -36,7 +60,7 @@ h2 {
 }
 
 .panel {
-  background: #1f2937;
+  background: rgba(31, 41, 55, 0.88);
   padding: 16px;
   border-radius: 12px;
   margin-bottom: 16px;
@@ -74,7 +98,7 @@ button {
 </style>
 </head>
 
-<body>
+<body class="mode-idle">
 <div class="container">
 
 <h2>語音實驗倒數器</h2>
@@ -95,8 +119,10 @@ button {
   <label>測量時間（秒）</label>
   <input id="measureTime" type="number" value="300" min="1">
 
-  <label>倒數秒數</label>
+  <label>第一次抽換倒數秒數</label>
   <input id="leadTime" type="number" value="10" min="1">
+
+  <p>最後抽換固定：20 秒預告，15 秒開始倒數。</p>
 </div>
 
 <div class="panel">
@@ -120,6 +146,9 @@ let audioCtx = null;
 let isRunning = false;
 let isPaused = false;
 
+const FINAL_NOTICE_TIME = 20;
+const FINAL_COUNTDOWN_TIME = 15;
+
 function getSetting() {
   return {
     name: document.getElementById("experimentName").value || "未命名實驗",
@@ -129,6 +158,11 @@ function getSetting() {
     lead: Number(document.getElementById("leadTime").value),
     preNotice: 3
   };
+}
+
+function setMode(mode) {
+  document.body.className = "";
+  document.body.classList.add("mode-" + mode);
 }
 
 function unlockAudio() {
@@ -187,19 +221,32 @@ function formatTime(sec) {
 function updateDisplay() {
   const s = getSetting();
   const total = s.prep + s.measure;
+  const measureElapsed = elapsed - s.prep;
+  const measureRemain = s.measure - measureElapsed;
 
   let remain = 0;
   let status = "";
 
-  if (elapsed < s.prep) {
+  if (!isRunning && !isPaused) {
+    status = "準備中";
+    remain = s.prep;
+    setMode("idle");
+  } else if (elapsed < s.prep) {
     status = "準備階段";
     remain = s.prep - elapsed;
+    setMode("prep");
+  } else if (elapsed < total && measureRemain <= FINAL_COUNTDOWN_TIME) {
+    status = "最後倒數階段";
+    remain = measureRemain;
+    setMode("final");
   } else if (elapsed < total) {
     status = "測量階段";
     remain = total - elapsed;
+    setMode("measure");
   } else {
     status = "完成";
     remain = 0;
+    setMode("idle");
   }
 
   document.getElementById("timerDisplay").innerText = formatTime(remain);
@@ -242,6 +289,7 @@ function handleLogic() {
       elapsed >= s.prep &&
       elapsed < total &&
       measureRemain === sec &&
+      measureRemain > FINAL_NOTICE_TIME &&
       !triggered.has("remain_" + sec)
     ) {
       triggered.add("remain_" + sec);
@@ -256,16 +304,19 @@ function handleLogic() {
 
   if (
     elapsed >= s.prep &&
-    measureRemain === s.lead + s.preNotice &&
+    measureRemain === FINAL_NOTICE_TIME &&
     !triggered.has("lastNotice")
   ) {
     triggered.add("lastNotice");
-    speak(`準備進行最後最後一次抽換，${s.lead}秒倒數。`);
+    beep();
+    setTimeout(() => {
+      speak(`準備進行最後一次抽換，倒數${FINAL_COUNTDOWN_TIME}秒。`);
+    }, 500);
   }
 
   if (
     elapsed >= s.prep &&
-    measureRemain <= s.lead &&
+    measureRemain <= FINAL_COUNTDOWN_TIME &&
     measureRemain > 0 &&
     !triggered.has("lastCount_" + measureRemain)
   ) {
@@ -280,7 +331,7 @@ function handleLogic() {
   ) {
     triggered.add("end");
     beep();
-    speak("實驗完成。");
+    speak("實驗完成，請執行最後一次抽換。");
   }
 }
 
@@ -295,6 +346,8 @@ function tick() {
     clearInterval(intervalId);
     intervalId = null;
     isRunning = false;
+    isPaused = false;
+    updateDisplay();
     return;
   }
 
@@ -346,18 +399,28 @@ function resetTimer() {
 
 function testVoice() {
   unlockAudio();
+  setMode("test");
 
   const s = getSetting();
   speak(`語音測試成功。現在是${s.name}，第${s.round}輪。`);
+
+  setTimeout(() => {
+    if (!isRunning) updateDisplay();
+  }, 3000);
 }
 
 function testCountdown() {
   unlockAudio();
   speechSynthesis.cancel();
+  setMode("test");
 
-  speak("準備進行10秒倒數。");
+  beep();
 
-  let n = 10;
+  setTimeout(() => {
+    speak(`準備進行最後一次抽換，倒數${FINAL_COUNTDOWN_TIME}秒。`);
+  }, 500);
+
+  let n = FINAL_COUNTDOWN_TIME;
 
   const testId = setInterval(() => {
     speak(n);
@@ -367,6 +430,7 @@ function testCountdown() {
       clearInterval(testId);
       setTimeout(() => {
         beep();
+        if (!isRunning) updateDisplay();
       }, 1000);
     }
   }, 1000);
@@ -374,6 +438,5 @@ function testCountdown() {
 
 updateDisplay();
 </script>
-
 </body>
 </html>
