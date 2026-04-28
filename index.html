@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>語音實驗倒數器</title>
+
+<style>
+body {
+  font-family: Arial, "Microsoft JhengHei", sans-serif;
+  background: #111827;
+  color: #f9fafb;
+  padding: 20px;
+}
+
+.container {
+  max-width: 700px;
+  margin: auto;
+}
+
+h2 {
+  text-align: center;
+}
+
+.timer {
+  font-size: 72px;
+  text-align: center;
+  margin: 30px 0;
+  font-weight: bold;
+}
+
+.status {
+  text-align: center;
+  font-size: 24px;
+  margin-bottom: 20px;
+}
+
+.panel {
+  background: #1f2937;
+  padding: 16px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+
+label {
+  display: block;
+  margin-top: 10px;
+}
+
+input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  margin-top: 6px;
+  margin-bottom: 10px;
+  font-size: 18px;
+  border-radius: 8px;
+  border: none;
+}
+
+button {
+  padding: 12px;
+  margin: 4px;
+  font-size: 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+
+.start { background: #22c55e; }
+.pause { background: #facc15; }
+.reset { background: #ef4444; color: white; }
+.test { background: #60a5fa; }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h2>語音實驗倒數器</h2>
+
+<div class="timer" id="timerDisplay">00:00</div>
+<div class="status" id="statusDisplay">準備中</div>
+
+<div class="panel">
+  <label>實驗名稱</label>
+  <input id="experimentName" value="粉料測試">
+
+  <label>輪數</label>
+  <input id="roundNumber" type="number" value="1" min="1">
+
+  <label>準備時間（秒）</label>
+  <input id="prepTime" type="number" value="30" min="1">
+
+  <label>測量時間（秒）</label>
+  <input id="measureTime" type="number" value="300" min="1">
+
+  <label>倒數秒數</label>
+  <input id="leadTime" type="number" value="10" min="1">
+</div>
+
+<div class="panel">
+  <button class="start" onclick="startTimer()">Start</button>
+  <button class="pause" onclick="pauseTimer()">Pause</button>
+  <button class="reset" onclick="resetTimer()">Reset</button>
+</div>
+
+<div class="panel">
+  <button class="test" onclick="testVoice()">語音測試</button>
+  <button class="test" onclick="testCountdown()">倒數與警示聲測試</button>
+</div>
+
+</div>
+
+<script>
+let elapsed = 0;
+let intervalId = null;
+let triggered = new Set();
+let audioCtx = null;
+let isRunning = false;
+let isPaused = false;
+
+function getSetting() {
+  return {
+    name: document.getElementById("experimentName").value || "未命名實驗",
+    round: document.getElementById("roundNumber").value || "1",
+    prep: Number(document.getElementById("prepTime").value),
+    measure: Number(document.getElementById("measureTime").value),
+    lead: Number(document.getElementById("leadTime").value),
+    preNotice: 3
+  };
+}
+
+function unlockAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
+}
+
+function speak(text) {
+  speechSynthesis.cancel();
+
+  const msg = new SpeechSynthesisUtterance(String(text));
+  msg.lang = "zh-TW";
+  msg.rate = 1.05;
+  msg.pitch = 1;
+  msg.volume = 1;
+
+  speechSynthesis.speak(msg);
+}
+
+function beep() {
+  unlockAudio();
+
+  const now = audioCtx.currentTime;
+
+  for (let i = 0; i < 3; i++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.type = "square";
+    osc.frequency.setValueAtTime(1200, now + i * 0.2);
+
+    gain.gain.setValueAtTime(0, now + i * 0.2);
+    gain.gain.linearRampToValueAtTime(0.7, now + i * 0.2 + 0.01);
+    gain.gain.linearRampToValueAtTime(0, now + i * 0.2 + 0.12);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.start(now + i * 0.2);
+    osc.stop(now + i * 0.2 + 0.13);
+  }
+}
+
+function formatTime(sec) {
+  sec = Math.max(0, sec);
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+}
+
+function updateDisplay() {
+  const s = getSetting();
+  const total = s.prep + s.measure;
+
+  let remain = 0;
+  let status = "";
+
+  if (elapsed < s.prep) {
+    status = "準備階段";
+    remain = s.prep - elapsed;
+  } else if (elapsed < total) {
+    status = "測量階段";
+    remain = total - elapsed;
+  } else {
+    status = "完成";
+    remain = 0;
+  }
+
+  document.getElementById("timerDisplay").innerText = formatTime(remain);
+  document.getElementById("statusDisplay").innerText = status;
+}
+
+function handleLogic() {
+  const s = getSetting();
+  const total = s.prep + s.measure;
+
+  const prepRemain = s.prep - elapsed;
+  const measureElapsed = elapsed - s.prep;
+  const measureRemain = s.measure - measureElapsed;
+
+  if (elapsed === 0 && !triggered.has("start")) {
+    triggered.add("start");
+    speak(`現在是${s.name}，第${s.round}輪，實驗開始，${s.prep}秒後正式開始。`);
+  }
+
+  if (prepRemain === s.lead + s.preNotice && !triggered.has("prepNotice")) {
+    triggered.add("prepNotice");
+    speak(`準備進行${s.lead}秒倒數。`);
+  }
+
+  if (prepRemain <= s.lead && prepRemain > 0 && !triggered.has("prepCount_" + prepRemain)) {
+    triggered.add("prepCount_" + prepRemain);
+    speak(prepRemain);
+  }
+
+  if (prepRemain === 0 && !triggered.has("startMeasure")) {
+    triggered.add("startMeasure");
+    beep();
+    speak("開始測量。");
+  }
+
+  const reminders = [240, 180, 120, 60, 30];
+
+  reminders.forEach(sec => {
+    if (
+      elapsed >= s.prep &&
+      elapsed < total &&
+      measureRemain === sec &&
+      !triggered.has("remain_" + sec)
+    ) {
+      triggered.add("remain_" + sec);
+
+      if (sec >= 60) {
+        speak(`剩下${sec / 60}分鐘。`);
+      } else {
+        speak(`剩下${sec}秒。`);
+      }
+    }
+  });
+
+  if (
+    elapsed >= s.prep &&
+    measureRemain === s.lead + s.preNotice &&
+    !triggered.has("lastNotice")
+  ) {
+    triggered.add("lastNotice");
+    speak(`準備進行最後${s.lead}秒倒數。`);
+  }
+
+  if (
+    elapsed >= s.prep &&
+    measureRemain <= s.lead &&
+    measureRemain > 0 &&
+    !triggered.has("lastCount_" + measureRemain)
+  ) {
+    triggered.add("lastCount_" + measureRemain);
+    speak(measureRemain);
+  }
+
+  if (
+    elapsed >= s.prep &&
+    measureRemain === 0 &&
+    !triggered.has("end")
+  ) {
+    triggered.add("end");
+    beep();
+    speak("實驗完成，請執行最後一次抽換。");
+  }
+}
+
+function tick() {
+  const s = getSetting();
+  const total = s.prep + s.measure;
+
+  updateDisplay();
+  handleLogic();
+
+  if (elapsed >= total) {
+    clearInterval(intervalId);
+    intervalId = null;
+    isRunning = false;
+    return;
+  }
+
+  elapsed++;
+}
+
+function startTimer() {
+  unlockAudio();
+
+  if (isRunning && isPaused) {
+    isPaused = false;
+    speechSynthesis.resume();
+    intervalId = setInterval(tick, 1000);
+    return;
+  }
+
+  if (isRunning) return;
+
+  elapsed = 0;
+  triggered.clear();
+  isRunning = true;
+  isPaused = false;
+
+  tick();
+  intervalId = setInterval(tick, 1000);
+}
+
+function pauseTimer() {
+  if (!isRunning) return;
+
+  clearInterval(intervalId);
+  intervalId = null;
+  isPaused = true;
+  speechSynthesis.pause();
+}
+
+function resetTimer() {
+  clearInterval(intervalId);
+  intervalId = null;
+
+  elapsed = 0;
+  triggered.clear();
+  isRunning = false;
+  isPaused = false;
+
+  speechSynthesis.cancel();
+  updateDisplay();
+}
+
+function testVoice() {
+  unlockAudio();
+
+  const s = getSetting();
+  speak(`語音測試成功。現在是${s.name}，第${s.round}輪。`);
+}
+
+function testCountdown() {
+  unlockAudio();
+  speechSynthesis.cancel();
+
+  speak("準備進行10秒倒數。");
+
+  let n = 10;
+
+  const testId = setInterval(() => {
+    speak(n);
+    n--;
+
+    if (n < 1) {
+      clearInterval(testId);
+      setTimeout(() => {
+        beep();
+      }, 1000);
+    }
+  }, 1000);
+}
+
+updateDisplay();
+</script>
+
+</body>
+</html>
