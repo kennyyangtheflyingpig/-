@@ -122,7 +122,7 @@ button {
   <label>第一次抽換倒數秒數</label>
   <input id="leadTime" type="number" value="10" min="1">
 
-  <p>最後抽換固定：20 秒預告，15 秒開始倒數。</p>
+  <p>最後抽換固定：最後20 秒開始預告，最後15 秒開始倒數。</p>
 </div>
 
 <div class="panel">
@@ -331,7 +331,7 @@ function handleLogic() {
   ) {
     triggered.add("end");
     beep();
-    speak("實驗完成，請執行最後一次抽換。");
+    speak("實驗完成。");
   }
 }
 
@@ -402,7 +402,7 @@ function testVoice() {
   setMode("test");
 
   const s = getSetting();
-  speak(`語音測試成功。現在是${s.name}，第${s.round}輪。`);
+  speak(`語音測試，請調整音量至適當的大小。語音測試請調整音量至適當的大小。語音測試請調整音量至適當的大小。`);
 
   setTimeout(() => {
     if (!isRunning) updateDisplay();
