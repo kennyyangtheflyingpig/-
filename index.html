@@ -260,7 +260,7 @@ function handleLogic() {
     !triggered.has("lastNotice")
   ) {
     triggered.add("lastNotice");
-    speak(`準備進行最後${s.lead}秒倒數。`);
+    speak(`準備進行最後最後一次抽換，${s.lead}秒倒數。`);
   }
 
   if (
@@ -280,7 +280,7 @@ function handleLogic() {
   ) {
     triggered.add("end");
     beep();
-    speak("實驗完成，請執行最後一次抽換。");
+    speak("實驗完成。");
   }
 }
 
